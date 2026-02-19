@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import yaml
@@ -57,40 +56,57 @@ class SQLUpdateAgent:
         return cls(tables, llm_model=llm_model, ollama_base_url=ollama_base_url)
 
     @staticmethod
-    def _infer_schema_from_log_heuristic(log_data: str) -> TableSchema:
-        normalized = log_data.lower()
-        table_match = re.search(r"\btable\s+([A-Za-z_][A-Za-z0-9_$#.]*)", log_data, flags=re.IGNORECASE)
-        component_match = re.search(r"\bmp_[A-Za-z0-9_]*?(stg_[A-Za-z0-9_]+)", normalized)
-        failed_fields = SQLUpdateAgent._extract_failed_record_fields(log_data)
-
-        table_name = "stg_failed_records"
-        if table_match:
-            table_name = table_match.group(1)
-        elif component_match:
-            table_name = component_match.group(1)
-        elif "orders" in normalized:
-            table_name = "stg_orders"
-
-        pk_column = "id"
-        if failed_fields:
-            first_key = next(iter(failed_fields.keys()))
-            if first_key:
-                pk_column = first_key
-
-        status_column = "status"
-        for candidate in ["record_status", "status", "status_flag"]:
-            if re.search(rf"\b{candidate}\b", log_data, flags=re.IGNORECASE):
-                status_column = candidate
-                break
-
+    def _default_log_schema() -> TableSchema:
         return TableSchema(
-            table=table_name,
-            primary_keys=[pk_column],
-            status_column=status_column,
+            table="stg_failed_records",
+            primary_keys=["id"],
+            status_column="status",
             failed_status="FAILED",
             restart_status="READY_RETRY",
-            notes="Inferred from runtime log data",
+            notes="Default schema because LLM schema extraction was unavailable.",
         )
+
+    @classmethod
+    def _infer_schema_from_log_with_llm(
+        cls,
+        log_data: str,
+        llm_model: str | None,
+        ollama_base_url: str,
+    ) -> tuple[TableSchema, str | None]:
+        fallback = cls._default_log_schema()
+        if not llm_model:
+            return fallback, "Schema inference fallback used because --llm-model was not provided."
+        if ChatOllama is None or ChatPromptTemplate is None or StrOutputParser is None:
+            return fallback, "Schema inference fallback used because LLM dependencies are missing."
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    (
+                        "You infer table schema metadata from an Ab Initio failure log. "
+                        "Return ONLY valid JSON with keys: table, primary_keys, status_column, "
+                        "failed_status, restart_status, notes."
+                    ),
+                ),
+                (
+                    "human",
+                    "log_data: {log_data}",
+                ),
+            ]
+        )
+        chain = (
+            prompt
+            | ChatOllama(model=llm_model, temperature=0, base_url=ollama_base_url)
+            | StrOutputParser()
+        )
+        try:
+            payload = json.loads(chain.invoke({"log_data": log_data}))
+            if not isinstance(payload, dict):
+                return fallback, "Schema inference fallback used because LLM output was not a JSON object."
+            return TableSchema(**payload), None
+        except Exception as exc:  # pragma: no cover - runtime/model issue
+            return fallback, f"Schema inference fallback used due to LLM issue: {exc}"
 
     @classmethod
     def from_log(
@@ -99,76 +115,76 @@ class SQLUpdateAgent:
         llm_model: str | None = None,
         ollama_base_url: str = "http://localhost:11434",
     ) -> "SQLUpdateAgent":
-        schema = cls._infer_schema_from_log_heuristic(log_data)
-        return cls([schema], llm_model=llm_model, ollama_base_url=ollama_base_url)
+        schema, note = cls._infer_schema_from_log_with_llm(log_data, llm_model, ollama_base_url)
+        agent = cls([schema], llm_model=llm_model, ollama_base_url=ollama_base_url)
+        agent._log_schema_inference_note = note
+        return agent
 
-    @staticmethod
-    def _extract_pk_from_log(log_data: str, pk_column: str) -> str | None:
-        patterns = [
-            rf"\b{re.escape(pk_column)}\b\s*[:=]\s*['\"]?([A-Za-z0-9_.\-/]+)",
-            rf"\b{re.escape(pk_column)}\b\s+is\s+['\"]?([A-Za-z0-9_.\-/]+)",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, log_data, flags=re.IGNORECASE)
-            if match:
-                return match.group(1).strip("'\" ")
-        return None
+    def _infer_pk_value_with_llm(
+        self,
+        log_data: str,
+        pk_column: str,
+    ) -> tuple[str | None, str | None]:
+        if not self.llm_model:
+            return None, "Could not infer primary key value because --llm-model was not provided."
+        if ChatOllama is None or ChatPromptTemplate is None or StrOutputParser is None:
+            return None, "Could not infer primary key value because LLM dependencies are missing."
 
-    @staticmethod
-    def _extract_failed_record_fields(log_data: str) -> dict[str, str]:
-        failed_record_match = re.search(
-            r"Failed\s+Record\s*:\s*(.+?)(?:\n\s*\n|\n\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]|\Z)",
-            log_data,
-            flags=re.IGNORECASE | re.DOTALL,
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    (
+                        "Extract the failed record primary key value from the log. "
+                        "Return ONLY valid JSON with keys pk_value and reason. "
+                        "Set pk_value to null if unavailable."
+                    ),
+                ),
+                ("human", "pk_column: {pk_column}\nlog_data: {log_data}"),
+            ]
         )
-        if not failed_record_match:
-            return {}
+        chain = (
+            prompt
+            | ChatOllama(model=self.llm_model, temperature=0, base_url=self.ollama_base_url)
+            | StrOutputParser()
+        )
+        try:
+            payload = json.loads(chain.invoke({"pk_column": pk_column, "log_data": log_data}))
+        except Exception as exc:  # pragma: no cover - runtime/model issue
+            return None, f"Could not infer primary key value due to LLM issue: {exc}"
 
-        segment = failed_record_match.group(1)
-        flattened = " ".join(line.strip() for line in segment.splitlines()).strip()
-        if not flattened:
-            return {}
+        if not isinstance(payload, dict):
+            return None, "Could not infer primary key value because LLM output was not a JSON object."
+        value = payload.get("pk_value")
+        reason = payload.get("reason")
+        if isinstance(value, str) and value.strip():
+            return value.strip(), reason if isinstance(reason, str) else None
+        return None, reason if isinstance(reason, str) else "Could not infer primary key value from log_data."
 
-        fields: dict[str, str] = {}
-        for part in re.split(r"\|", flattened):
-            item = part.strip()
-            if "=" not in item:
-                continue
-            key, value = item.split("=", 1)
-            cleaned_key = key.strip()
-            cleaned_value = value.strip().strip("'\"")
-            if cleaned_key:
-                fields[cleaned_key] = cleaned_value
-        return fields
-
-    @classmethod
     def _resolve_pk_inputs(
-        cls,
+        self,
         schema: TableSchema,
         log_data: str,
-        extracted_fields: dict[str, str],
         pk_column: str | None,
         pk_value: str | None,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, str | None]:
         resolved_pk_column = (pk_column or (schema.primary_keys[0] if schema.primary_keys else "")).strip()
         if not resolved_pk_column:
             raise ValueError("No primary key column available in schema for SQL guard generation.")
 
         if pk_value:
-            return resolved_pk_column, pk_value
+            return resolved_pk_column, pk_value, None
 
-        for field_name, field_value in extracted_fields.items():
-            if field_name.lower() == resolved_pk_column.lower() and field_value:
-                return resolved_pk_column, field_value
-
-        extracted = cls._extract_pk_from_log(log_data, resolved_pk_column)
-        if extracted:
-            return resolved_pk_column, extracted
+        llm_value, llm_reason = self._infer_pk_value_with_llm(
+            log_data=log_data,
+            pk_column=resolved_pk_column,
+        )
+        if llm_value:
+            return resolved_pk_column, llm_value, llm_reason
 
         raise ValueError(
-            "Could not infer primary key value from log_data. "
-            f"Include '{resolved_pk_column}=<value>' (or '{resolved_pk_column}: <value>') in the log, "
-            "or pass --pk-value explicitly."
+            (llm_reason or "Could not infer primary key value from log_data.")
+            + f" Pass --pk-value explicitly for primary key column '{resolved_pk_column}'."
         )
 
     def _build_fallback_recommendation(
@@ -371,7 +387,6 @@ class SQLUpdateAgent:
         pk_value: str | None = None,
         override_restart_status: str | None = None,
     ) -> SQLRecommendation:
-        extracted_fields = self._extract_failed_record_fields(log_data)
         retrieved = self.store.retrieve(log_data)
 
         if not retrieved:
@@ -382,10 +397,9 @@ class SQLUpdateAgent:
             retrieved=retrieved,
             override_restart_status=override_restart_status,
         )
-        resolved_pk_column, resolved_pk_value = self._resolve_pk_inputs(
+        resolved_pk_column, resolved_pk_value, pk_reason = self._resolve_pk_inputs(
             schema=schema,
             log_data=log_data,
-            extracted_fields=extracted_fields,
             pk_column=pk_column,
             pk_value=pk_value,
         )
@@ -418,7 +432,7 @@ class SQLUpdateAgent:
         explanation = (
             f"Selected table '{schema.table}' from retrieved schema context. "
             f"Target status '{detected_status}'. "
-            f"{selection_reason or ''} {generation_explanation}"
+            f"{selection_reason or ''} {pk_reason or ''} {getattr(self, '_log_schema_inference_note', '')} {generation_explanation}"
         ).strip()
 
         return SQLRecommendation(
