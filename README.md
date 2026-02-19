@@ -1,13 +1,13 @@
 # Ab Initio Failure SQL RAG Agent
 
-This repository contains a lightweight **RAG-style AI agent** that generates safe SQL `UPDATE` statements when an Ab Initio job fails on Unix.
+This repository contains a lightweight **RAG-style AI agent** that generates SQL `UPDATE` statements when an Ab Initio job fails on Unix.
 
 The goal is to reset failed records to a restartable status so downstream processing can continue.
 
 Now the agent supports three generation capabilities:
 - **RAG retrieval** (`TF-IDF`) to shortlist schema candidates from log data.
 - **LangChain + Ollama table/status selector** to identify the best table and target restart status from retrieved chunks.
-- **SQL generator with safety guards** (LLM-first, deterministic fallback) to produce guarded `UPDATE` statements.
+- **SQL generator** (LLM-first, deterministic fallback) to produce `UPDATE` statements.
 
 ## Is RAG the right approach?
 
@@ -20,7 +20,7 @@ RAG helps by:
 
 For very small static workflows (1-2 tables), a deterministic rule engine may be enough. This project supports both:
 - Retrieval (`TF-IDF`) for selecting relevant schema chunks.
-- Guardrailed SQL generation from retrieved metadata.
+- SQL generation from retrieved metadata.
 
 ## Quick start
 
