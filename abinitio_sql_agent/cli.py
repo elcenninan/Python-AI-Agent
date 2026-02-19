@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 from .agent import SQLUpdateAgent
 
@@ -18,9 +19,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _sanitize_argv(argv: list[str]) -> list[str]:
+    """Drop stray shell line-continuation tokens copied as literal args."""
+    return [arg for arg in argv if arg != "\\"]
+
+
 def main() -> None:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(_sanitize_argv(sys.argv[1:]))
 
     agent = SQLUpdateAgent.from_yaml(
         args.schema,
