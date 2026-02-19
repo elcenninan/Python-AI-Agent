@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+from typing import Any
 
 from .agent import SQLUpdateAgent
 
@@ -22,6 +24,27 @@ def build_parser() -> argparse.ArgumentParser:
 def _sanitize_argv(argv: list[str]) -> list[str]:
     """Drop stray shell line-continuation tokens copied as literal args."""
     return [arg for arg in argv if arg != "\\"]
+
+
+def _to_sql_literal(value: Any) -> str:
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, (int, float)):
+        return str(value)
+    escaped = str(value).replace("'", "''")
+    return f"'{escaped}'"
+
+
+def _render_sql_sample(sql: str, params: dict[str, Any]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key not in params:
+            return match.group(0)
+        return _to_sql_literal(params[key])
+
+    return re.sub(r":([A-Za-z_][A-Za-z0-9_]*)", replace, sql)
 
 
 def main() -> None:
@@ -44,6 +67,8 @@ def main() -> None:
     print(recommendation.sql)
     print("\n=== Parameters ===")
     print(json.dumps(recommendation.params, indent=2))
+    print("\n=== Sample SQL (values substituted for readability) ===")
+    print(_render_sql_sample(recommendation.sql, recommendation.params))
     print("\n=== Explanation ===")
     print(recommendation.explanation)
     print(f"table={recommendation.table}")
