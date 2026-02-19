@@ -1,4 +1,4 @@
-from abinitio_sql_agent.cli import _sanitize_argv, build_parser
+from abinitio_sql_agent.cli import _render_sql_sample, _sanitize_argv, _to_sql_literal, build_parser
 
 
 def test_sanitize_argv_drops_stray_backslash_tokens():
@@ -41,3 +41,17 @@ def test_parser_allows_omitting_pk_inputs():
 
     assert args.pk_column is None
     assert args.pk_value is None
+
+
+def test_to_sql_literal_formats_common_types():
+    assert _to_sql_literal(None) == "NULL"
+    assert _to_sql_literal(True) == "TRUE"
+    assert _to_sql_literal(3) == "3"
+    assert _to_sql_literal("O'Reilly") == "'O''Reilly'"
+
+
+def test_render_sql_sample_substitutes_available_params_only():
+    sql = "UPDATE t SET a = :value, b = :missing WHERE id = :pk_value"
+    rendered = _render_sql_sample(sql, {"value": "READY", "pk_value": "ORD-1"})
+
+    assert rendered == "UPDATE t SET a = 'READY', b = :missing WHERE id = 'ORD-1'"
