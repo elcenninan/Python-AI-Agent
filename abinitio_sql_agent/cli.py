@@ -10,7 +10,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="RAG agent that reads Ab Initio logs and recommends rerun SQL"
     )
-    parser.add_argument("--schema", required=True, help="Path to schema knowledge YAML")
+    parser.add_argument("--schema", required=False, default=None, help="Optional path to schema knowledge YAML")
     parser.add_argument(
         "--log-file",
         default=None,
@@ -36,7 +36,7 @@ def main() -> None:
         with open(args.log_file, "r", encoding="utf-8") as handle:
             log_text = handle.read()
 
-    agent = SQLRecoveryAgent.from_yaml(args.schema)
+    agent = SQLRecoveryAgent.from_yaml(args.schema) if args.schema else SQLRecoveryAgent()
     recommendation = agent.recommend_sql(log_text)
 
     print("=== SQL Recommendation ===")

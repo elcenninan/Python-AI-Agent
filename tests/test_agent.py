@@ -59,3 +59,22 @@ Graph Status    : FAILED
     assert recommendation.params["trans_id"] == "TRX900145"
     assert recommendation.params["policy_id"] == "POL778899"
     assert recommendation.retrieved_docs[0].name == "g6t_policy_trans_src_prod"
+
+
+def test_recommend_sql_log_only_mode_uses_failed_record_keys():
+    log = """Graph Name      : g6t_policy_trans_src
+[18:32:13] INFO  : Loading records into table G6T_POLICY_TRANS_STD
+Failed Record:
+trans_id=TRX900145
+policy_id=POL778899
+Graph Status    : FAILED
+"""
+
+    agent = SQLRecoveryAgent()
+    recommendation = agent.recommend_sql(log)
+
+    assert "UPDATE G6T_POLICY_TRANS_STD" in recommendation.sql
+    assert "trans_id = :trans_id" in recommendation.sql
+    assert "policy_id = :policy_id" in recommendation.sql
+    assert recommendation.params["trans_id"] == "TRX900145"
+    assert recommendation.retrieved_docs == []
