@@ -1,2 +1,4 @@
 PyYAML==6.0.2
 scikit-learn==1.5.2
+langchain-core==0.3.37
+langchain-openai==0.3.6
