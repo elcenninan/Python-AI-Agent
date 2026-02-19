@@ -2,85 +2,52 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
-import sys
-from typing import Any
 
-from .agent import SQLUpdateAgent
+from .agent import SQLRecoveryAgent
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate SQL update for Ab Initio failed records")
-    parser.add_argument("--schema", default=None, help="Path to schema YAML (optional; if omitted schema is inferred from log)")
-    parser.add_argument("--log-data", "--error", dest="log_data", required=True, help="Failure log text")
-    parser.add_argument("--pk-column", default=None, help="Primary key column name (optional if inferable from schema/log)")
-    parser.add_argument("--pk-value", default=None, help="Primary key value (optional if inferable from log)")
-    parser.add_argument("--new-status", default=None, help="Override restart status")
-    parser.add_argument("--llm-model", default=None, help="Optional Ollama model name (ex: mistral:7b)")
-    parser.add_argument("--ollama-base-url", default="http://localhost:11434", help="Ollama API base URL")
+    parser = argparse.ArgumentParser(
+        description="RAG agent that reads Ab Initio logs and recommends rerun SQL"
+    )
+    parser.add_argument("--schema", required=True, help="Path to schema knowledge YAML")
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        help="Optional file containing raw Ab Initio graph execution log",
+    )
+    parser.add_argument(
+        "--log-data",
+        default=None,
+        help="Raw log text (use instead of --log-file)",
+    )
     return parser
-
-
-def _sanitize_argv(argv: list[str]) -> list[str]:
-    """Drop stray shell line-continuation tokens copied as literal args."""
-    return [arg for arg in argv if arg != "\\"]
-
-
-def _to_sql_literal(value: Any) -> str:
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, (int, float)):
-        return str(value)
-    escaped = str(value).replace("'", "''")
-    return f"'{escaped}'"
-
-
-def _render_sql_sample(sql: str, params: dict[str, Any]) -> str:
-    def replace(match: re.Match[str]) -> str:
-        key = match.group(1)
-        if key not in params:
-            return match.group(0)
-        return _to_sql_literal(params[key])
-
-    return re.sub(r":([A-Za-z_][A-Za-z0-9_]*)", replace, sql)
 
 
 def main() -> None:
     parser = build_parser()
-    args = parser.parse_args(_sanitize_argv(sys.argv[1:]))
+    args = parser.parse_args()
 
-    if args.schema:
-        agent = SQLUpdateAgent.from_yaml(
-            args.schema,
-            llm_model=args.llm_model,
-            ollama_base_url=args.ollama_base_url,
-        )
-    else:
-        agent = SQLUpdateAgent.from_log(
-            args.log_data,
-            llm_model=args.llm_model,
-            ollama_base_url=args.ollama_base_url,
-        )
-    recommendation = agent.recommend_update(
-        log_data=args.log_data,
-        pk_column=args.pk_column,
-        pk_value=args.pk_value,
-        override_restart_status=args.new_status,
-    )
+    if not args.log_file and not args.log_data:
+        raise SystemExit("Provide one of --log-file or --log-data")
+
+    log_text = args.log_data
+    if args.log_file:
+        with open(args.log_file, "r", encoding="utf-8") as handle:
+            log_text = handle.read()
+
+    agent = SQLRecoveryAgent.from_yaml(args.schema)
+    recommendation = agent.recommend_sql(log_text)
 
     print("=== SQL Recommendation ===")
     print(recommendation.sql)
     print("\n=== Parameters ===")
     print(json.dumps(recommendation.params, indent=2))
-    print("\n=== Sample SQL (values substituted for readability) ===")
-    print(_render_sql_sample(recommendation.sql, recommendation.params))
-    print("\n=== Explanation ===")
-    print(recommendation.explanation)
-    print(f"table={recommendation.table}")
-    print(f"target_status={recommendation.detected_status}")
-    print(f"confidence={recommendation.confidence:.3f}")
+    print("\n=== Reason ===")
+    print(recommendation.reason)
+    print("\n=== Retrieved Schema Docs ===")
+    for item in recommendation.retrieved_docs:
+        print(f"- {item.name} table={item.table} score={item.score:.3f}")
 
 
 if __name__ == "__main__":

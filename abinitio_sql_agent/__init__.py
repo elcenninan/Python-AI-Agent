@@ -1,5 +1,5 @@
-"""Ab Initio SQL restart agent package."""
+"""Ab Initio log-to-SQL recovery agent."""
 
-from .agent import SQLUpdateAgent
+from .agent import SQLRecoveryAgent
 
-__all__ = ["SQLUpdateAgent"]
+__all__ = ["SQLRecoveryAgent"]

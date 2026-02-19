@@ -8,8 +8,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 @dataclass
 class Chunk:
-    table: str
+    key: str
     text: str
+    payload: dict[str, str]
 
 
 class RAGStore:
@@ -18,8 +19,8 @@ class RAGStore:
         self._vectorizer = TfidfVectorizer(ngram_range=(1, 2), lowercase=True)
         self._matrix = None
 
-    def add(self, table: str, text: str) -> None:
-        self._chunks.append(Chunk(table=table, text=text))
+    def add(self, key: str, text: str, payload: dict[str, str]) -> None:
+        self._chunks.append(Chunk(key=key, text=text, payload=payload))
 
     def build(self) -> None:
         corpus = [chunk.text for chunk in self._chunks]
@@ -31,7 +32,8 @@ class RAGStore:
     def retrieve(self, query: str, top_k: int = 3) -> list[tuple[Chunk, float]]:
         if self._matrix is None or not self._chunks:
             return []
-        q = self._vectorizer.transform([query])
-        sims = cosine_similarity(q, self._matrix)[0]
-        ranked = sorted(enumerate(sims), key=lambda x: x[1], reverse=True)[:top_k]
-        return [(self._chunks[idx], float(score)) for idx, score in ranked]
+
+        query_vector = self._vectorizer.transform([query])
+        scores = cosine_similarity(query_vector, self._matrix)[0]
+        ranked = sorted(enumerate(scores), key=lambda item: item[1], reverse=True)[:top_k]
+        return [(self._chunks[index], float(score)) for index, score in ranked]

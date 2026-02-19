@@ -1,33 +1,47 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
-class TableSchema:
+class SchemaDoc:
+    """Single retrievable schema/process document used by the RAG index."""
+
+    name: str
     table: str
-    primary_keys: list[str]
-    status_column: str
-    failed_status: str = "FAILED"
-    restart_status: str = "READY_RETRY"
-    retry_count_column: str | None = None
-    last_error_column: str | None = None
-    updated_at_column: str | None = None
+    process_status_column: str
+    rerun_ready_value: str
+    failed_value: str = "FAILED"
+    id_columns: list[str] = field(default_factory=list)
+    mutable_columns: list[str] = field(default_factory=list)
     notes: str = ""
 
 
 @dataclass
-class RetrievedChunk:
+class ParsedLog:
+    graph_name: str = ""
+    project: str = ""
+    environment: str = ""
+    component: str = ""
+    table: str = ""
+    db_error: str = ""
+    status: str = ""
+    rejected_records: int = 0
+    failed_record: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class RetrievedDoc:
+    name: str
     table: str
-    content: str
     score: float
+    excerpt: str
 
 
 @dataclass
 class SQLRecommendation:
     table: str
     sql: str
-    params: dict[str, Any] = field(default_factory=dict)
-    evidence: list[RetrievedChunk] = field(default_factory=list)
-    explanation: str = ""
-    confidence: float = 0.0
-    detected_status: str = ""
+    params: dict[str, str]
+    reason: str
+    retrieved_docs: list[RetrievedDoc] = field(default_factory=list)
