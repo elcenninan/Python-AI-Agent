@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -299,7 +300,50 @@ class SQLUpdateAgent:
             return None, "LLM output was missing a valid sql string or params object."
         params.setdefault("pk_value", pk_value)
         params.setdefault("failed_status", schema.failed_status)
+
+        validation_issue = self._validate_llm_sql(schema=schema, sql=sql)
+        if validation_issue:
+            return None, validation_issue
         return (sql, params, explanation), None
+
+    @staticmethod
+    def _validate_llm_sql(schema: TableSchema, sql: str) -> str | None:
+        normalized = " ".join(sql.strip().split())
+        if not normalized.lower().startswith("update "):
+            return "LLM SQL validation failed: statement is not an UPDATE."
+
+        table_match = re.match(r"(?is)^update\s+([\w\.\"]+)\s+set\s+", normalized)
+        if not table_match:
+            return "LLM SQL validation failed: could not parse UPDATE target table."
+
+        table_token = table_match.group(1).strip('"')
+        if table_token.lower() != schema.table.lower():
+            return (
+                "LLM SQL validation failed: UPDATE table does not match selected schema "
+                f"('{table_token}' != '{schema.table}')."
+            )
+
+        set_match = re.search(r"(?is)\bset\b\s+(.*?)\s*(?:\bwhere\b|;|$)", normalized)
+        if not set_match:
+            return "LLM SQL validation failed: missing SET clause."
+
+        allowed_columns = {
+            schema.status_column.lower(),
+            *(col.lower() for col in [schema.retry_count_column, schema.last_error_column, schema.updated_at_column] if col),
+        }
+        assignments = [part.strip() for part in set_match.group(1).split(",") if part.strip()]
+        if not assignments:
+            return "LLM SQL validation failed: SET clause has no assignments."
+
+        for assignment in assignments:
+            lhs = assignment.split("=", 1)[0].strip().strip('"')
+            if lhs.lower() not in allowed_columns:
+                return (
+                    "LLM SQL validation failed: SET clause references unknown column "
+                    f"'{lhs}' for table '{schema.table}'."
+                )
+
+        return None
 
     def _select_schema_and_status(
         self,
