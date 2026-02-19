@@ -4,9 +4,10 @@ This repository contains a lightweight **RAG-style AI agent** that generates saf
 
 The goal is to reset failed records to a restartable status so downstream processing can continue.
 
-Now the agent supports two generation modes:
-- **Deterministic fallback template** (always available).
-- **LangChain + Ollama local LLM generation** when `--llm-model` is provided and Ollama is running.
+Now the agent supports three generation capabilities:
+- **RAG retrieval** (`TF-IDF`) to shortlist schema candidates from log data.
+- **LangChain + Ollama table/status selector** to identify the best table and target restart status from retrieved chunks.
+- **SQL generator with safety guards** (LLM-first, deterministic fallback) to produce guarded `UPDATE` statements.
 
 ## Is RAG the right approach?
 
@@ -29,7 +30,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 python -m abinitio_sql_agent.cli \
   --schema schemas/example_schema.yaml \
-  --error "Ab Initio graph failed: duplicate key while loading orders" \
+  --log-data "Ab Initio graph failed: duplicate key while loading orders" \
   --pk-column order_id \
   --pk-value ORD-1001
 
@@ -39,7 +40,7 @@ python -m abinitio_sql_agent.cli \
 # Start Ollama first, then pull your model: ollama pull mistral:7b
 python -m abinitio_sql_agent.cli \
   --schema schemas/example_schema.yaml \
-  --error "Ab Initio graph failed: duplicate key while loading orders" \
+  --log-data "Ab Initio graph failed: duplicate key while loading orders" \
   --pk-column order_id \
   --pk-value ORD-1001 \
   --llm-model mistral:7b \
@@ -55,7 +56,7 @@ python -m abinitio_sql_agent.cli \
   - optional retry/error timestamp columns
   - allowed status transitions
 - Runtime failure context:
-  - raw error text from Ab Initio logs
+  - raw log data from Ab Initio logs
   - failing key info (pk column + value)
 
 ## Output
