@@ -10,7 +10,7 @@ from .agent import SQLUpdateAgent
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate SQL update for Ab Initio failed records")
     parser.add_argument("--schema", required=True, help="Path to schema YAML")
-    parser.add_argument("--error", required=True, help="Failure log/error text")
+    parser.add_argument("--log-data", "--error", dest="log_data", required=True, help="Failure log text")
     parser.add_argument("--pk-column", required=True, help="Primary key column name")
     parser.add_argument("--pk-value", required=True, help="Primary key value")
     parser.add_argument("--new-status", default=None, help="Override restart status")
@@ -34,7 +34,7 @@ def main() -> None:
         ollama_base_url=args.ollama_base_url,
     )
     recommendation = agent.recommend_update(
-        error_text=args.error,
+        log_data=args.log_data,
         pk_column=args.pk_column,
         pk_value=args.pk_value,
         override_restart_status=args.new_status,
@@ -46,6 +46,8 @@ def main() -> None:
     print(json.dumps(recommendation.params, indent=2))
     print("\n=== Explanation ===")
     print(recommendation.explanation)
+    print(f"table={recommendation.table}")
+    print(f"target_status={recommendation.detected_status}")
     print(f"confidence={recommendation.confidence:.3f}")
 
 

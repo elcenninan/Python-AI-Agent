@@ -30,3 +30,4 @@ class SQLRecommendation:
     evidence: list[RetrievedChunk] = field(default_factory=list)
     explanation: str = ""
     confidence: float = 0.0
+    detected_status: str = ""

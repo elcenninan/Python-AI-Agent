@@ -34,4 +34,4 @@ class RAGStore:
         q = self._vectorizer.transform([query])
         sims = cosine_similarity(q, self._matrix)[0]
         ranked = sorted(enumerate(sims), key=lambda x: x[1], reverse=True)[:top_k]
-        return [(self._chunks[idx], float(score)) for idx, score in ranked if score > 0]
+        return [(self._chunks[idx], float(score)) for idx, score in ranked]

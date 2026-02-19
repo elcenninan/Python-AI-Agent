@@ -96,7 +96,7 @@ class SQLUpdateAgent:
         schema: TableSchema,
         pk_column: str,
         pk_value: str,
-        error_text: str,
+        log_data: str,
         override_restart_status: str | None,
     ) -> tuple[str, dict[str, str], str]:
         restart_status = override_restart_status or schema.restart_status
@@ -106,7 +106,7 @@ class SQLUpdateAgent:
             "restart_status": restart_status,
             "pk_value": pk_value,
             "failed_status": schema.failed_status,
-            "error_text": error_text.strip()[:500],
+            "error_text": log_data.strip()[:500],
         }
 
         if schema.retry_count_column:
@@ -136,7 +136,7 @@ class SQLUpdateAgent:
         schema: TableSchema,
         pk_column: str,
         pk_value: str,
-        error_text: str,
+        log_data: str,
         override_restart_status: str | None,
     ) -> tuple[tuple[str, dict[str, str], str] | None, str | None]:
         if not self.llm_model:
@@ -162,7 +162,7 @@ class SQLUpdateAgent:
                     "human",
                     (
                         "Schema: {schema_json}\n"
-                        "error_text: {error_text}\n"
+                        "log_data: {log_data}\n"
                         "pk_column: {pk_column}\n"
                         "pk_value: {pk_value}\n"
                         "override_restart_status: {override_restart_status}\n"
@@ -181,7 +181,7 @@ class SQLUpdateAgent:
             raw = chain.invoke(
                 {
                     "schema_json": json.dumps(schema.__dict__),
-                    "error_text": error_text,
+                    "log_data": log_data,
                     "pk_column": pk_column,
                     "pk_value": pk_value,
                     "override_restart_status": override_restart_status,
@@ -218,35 +218,117 @@ class SQLUpdateAgent:
         params.setdefault("failed_status", schema.failed_status)
         return (sql, params, explanation), None
 
+    def _select_schema_and_status(
+        self,
+        log_data: str,
+        retrieved: list[tuple],
+        override_restart_status: str | None,
+    ) -> tuple[TableSchema, str, str | None]:
+        best_chunk, _best_score = retrieved[0]
+        default_schema = self.schemas[best_chunk.table]
+        default_status = override_restart_status or default_schema.restart_status
+
+        if not self.llm_model:
+            return default_schema, default_status, "LLM selector disabled; used top RAG chunk."
+        if ChatOllama is None or ChatPromptTemplate is None or StrOutputParser is None:
+            return default_schema, default_status, "LLM selector unavailable due to missing dependencies."
+
+        candidates = []
+        for chunk, score in retrieved:
+            schema = self.schemas[chunk.table]
+            candidates.append(
+                {
+                    "table": schema.table,
+                    "status_column": schema.status_column,
+                    "failed_status": schema.failed_status,
+                    "restart_status": schema.restart_status,
+                    "notes": schema.notes,
+                    "score": score,
+                }
+            )
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    (
+                        "You identify which table should be updated and what target status to set, "
+                        "grounded strictly in retrieved candidates. "
+                        "Return ONLY JSON with keys table, target_status, reason."
+                    ),
+                ),
+                (
+                    "human",
+                    (
+                        "log_data: {log_data}\n"
+                        "override_restart_status: {override_restart_status}\n"
+                        "candidates: {candidates_json}\n"
+                        "Choose one candidate table and target status."
+                    ),
+                ),
+            ]
+        )
+        chain = (
+            prompt
+            | ChatOllama(model=self.llm_model, temperature=0, base_url=self.ollama_base_url)
+            | StrOutputParser()
+        )
+
+        try:
+            raw = chain.invoke(
+                {
+                    "log_data": log_data,
+                    "override_restart_status": override_restart_status,
+                    "candidates_json": json.dumps(candidates),
+                }
+            )
+            payload = json.loads(raw)
+        except Exception as exc:  # pragma: no cover - runtime/model issue
+            return default_schema, default_status, f"LLM selector failed: {exc}"
+
+        table = payload.get("table") if isinstance(payload, dict) else None
+        target_status = payload.get("target_status") if isinstance(payload, dict) else None
+        reason = payload.get("reason") if isinstance(payload, dict) else None
+
+        if table not in self.schemas:
+            return default_schema, default_status, "LLM selector returned unknown table; used top RAG chunk."
+
+        schema = self.schemas[table]
+        selected_status = override_restart_status or (target_status if isinstance(target_status, str) and target_status.strip() else schema.restart_status)
+        return schema, selected_status, reason if isinstance(reason, str) else None
+
     def recommend_update(
         self,
-        error_text: str,
+        log_data: str,
         pk_column: str,
         pk_value: str,
         override_restart_status: str | None = None,
     ) -> SQLRecommendation:
-        retrieved = self.store.retrieve(error_text)
+        retrieved = self.store.retrieve(log_data)
 
         if not retrieved:
             raise ValueError("No schema context found. Load at least one table schema.")
 
-        best_chunk, best_score = retrieved[0]
-        schema = self.schemas[best_chunk.table]
+        schema, detected_status, selection_reason = self._select_schema_and_status(
+            log_data=log_data,
+            retrieved=retrieved,
+            override_restart_status=override_restart_status,
+        )
 
         result, llm_issue = self._build_llm_recommendation(
             schema=schema,
             pk_column=pk_column,
             pk_value=pk_value,
-            error_text=error_text,
-            override_restart_status=override_restart_status,
+            log_data=log_data,
+            override_restart_status=detected_status,
         )
         if result is None:
             sql, params, generation_explanation = self._build_fallback_recommendation(
                 schema=schema,
                 pk_column=pk_column,
                 pk_value=pk_value,
-                error_text=error_text,
-                override_restart_status=override_restart_status,
+                log_data=log_data,
+                override_restart_status=detected_status,
             )
             if llm_issue:
                 generation_explanation = f"{generation_explanation} Cause: {llm_issue}"
@@ -260,8 +342,9 @@ class SQLUpdateAgent:
 
         explanation = (
             f"Selected table '{schema.table}' from retrieved schema context. "
-            f"{generation_explanation}"
-        )
+            f"Target status '{detected_status}'. "
+            f"{selection_reason or ''} {generation_explanation}"
+        ).strip()
 
         return SQLRecommendation(
             table=schema.table,
@@ -269,5 +352,6 @@ class SQLUpdateAgent:
             params=params,
             evidence=evidence,
             explanation=explanation,
-            confidence=best_score,
+            confidence=max(score for _, score in retrieved),
+            detected_status=detected_status,
         )
