@@ -334,3 +334,35 @@ tables:
     )
 
     assert rec.params["pk_value"] == "ORD102938"
+
+
+def test_from_log_can_infer_schema_and_generate_sql():
+    log_data = (
+        "Ab Initio Graph Execution Log\n"
+        "[17:05:43] INFO  : Loading records into table STG_ORDERS\n"
+        "[17:05:44] ERROR : DB Execute Component (mp_load_stg_orders)\n"
+        "Failed Record:\n"
+        "order_id=ORD102938|customer_id=CUST8891|amount=2500|status=NEW\n"
+    )
+
+    agent = SQLUpdateAgent.from_log(log_data)
+    rec = agent.recommend_update(log_data=log_data)
+
+    assert rec.table.lower() == "stg_orders"
+    assert "WHERE order_id = :pk_value" in rec.sql
+    assert rec.params["pk_value"] == "ORD102938"
+
+
+def test_from_log_handles_escaped_newlines_when_inferring_schema():
+    log_data = (
+        "[17:05:43] INFO  : Loading records into table STG_ORDERS\n"
+        "[17:05:44] ERROR : DB Execute Component (mp_load_stg_orders)\n"
+        "Failed Record:\n"
+        "order_id=ORD777|customer_id=CUST1|amount=50|status=NEW\n"
+    )
+
+    agent = SQLUpdateAgent.from_log(log_data)
+    rec = agent.recommend_update(log_data=log_data)
+
+    assert rec.table.lower() == "stg_orders"
+    assert rec.params["pk_value"] == "ORD777"

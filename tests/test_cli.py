@@ -16,16 +16,16 @@ def test_sanitize_argv_drops_stray_backslash_tokens():
 
 def test_parser_supports_error_alias_for_log_data():
     parser = build_parser()
-    args = parser.parse_args(
-        [
-            "--schema",
-            "schemas/example_schema.yaml",
-            "--error",
-            "failed",
-        ]
-    )
+    args = parser.parse_args(["--error", "failed"])
 
     assert args.log_data == "failed"
+
+
+def test_parser_allows_omitting_schema():
+    parser = build_parser()
+    args = parser.parse_args(["--log-data", "failed for order_id=ORD-1"])
+
+    assert args.schema is None
 
 
 def test_parser_allows_omitting_pk_inputs():
