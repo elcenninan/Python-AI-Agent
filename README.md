@@ -5,7 +5,7 @@ This project was rebuilt as a focused **agentic RAG assistant** for Ab Initio gr
 You provide raw execution logs (like your `g6t_policy_trans_src` failure sample), and the agent:
 
 1. Parses graph metadata + failed record fields.
-2. Retrieves the closest schema/process definition from a schema knowledge base.
+2. Optionally retrieves the closest schema/process definition from a schema knowledge base.
 3. Produces a recommended SQL `UPDATE` to reset process status and related fields so rerun is possible.
 
 ## Why this helps when schema changes
@@ -22,7 +22,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Run with a log file
+## Run with a log file (log-only mode)
+
+```bash
+python -m abinitio_sql_agent.cli \
+  --log-file sample.log
+```
+
+## Run with schema-assisted retrieval
 
 ```bash
 python -m abinitio_sql_agent.cli \
@@ -34,7 +41,6 @@ python -m abinitio_sql_agent.cli \
 
 ```bash
 python -m abinitio_sql_agent.cli \
-  --schema schemas/example_schema.yaml \
   --log-data "Ab Initio Graph Execution Log ..."
 ```
 
@@ -59,3 +65,6 @@ The CLI prints:
 - SQL update template
 - bind parameters extracted from failed record fields
 - retrieval reasoning + matched schema docs
+
+
+In **log-only mode** (no `--schema`), the agent does not enforce fixed status checks from a schema doc. It lets the model infer a pragmatic update using table and failed-record fields extracted from the log.

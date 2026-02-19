@@ -12,11 +12,11 @@ from .rag_store import RAGStore
 class SQLRecoveryAgent:
     """RAG-powered advisor that maps Ab Initio failures to rerun SQL updates."""
 
-    def __init__(self, docs: list[SchemaDoc]) -> None:
-        self.docs = docs
+    def __init__(self, docs: list[SchemaDoc] | None = None) -> None:
+        self.docs = docs or []
         self.store = RAGStore()
 
-        for doc in docs:
+        for doc in self.docs:
             text = (
                 f"name {doc.name} table {doc.table} "
                 f"status_column {doc.process_status_column} "
@@ -35,7 +35,8 @@ class SQLRecoveryAgent:
                     "failed_value": doc.failed_value,
                 },
             )
-        self.store.build()
+        if self.docs:
+            self.store.build()
 
     @classmethod
     def from_yaml(cls, schema_path: str | Path) -> "SQLRecoveryAgent":
@@ -89,6 +90,9 @@ class SQLRecoveryAgent:
         return parsed
 
     def recommend_sql(self, log_text: str) -> SQLRecommendation:
+        if not self.docs:
+            return self._recommend_sql_from_log_only(log_text)
+
         parsed = self.parse_log(log_text)
         query = " ".join(
             [
@@ -159,4 +163,41 @@ class SQLRecoveryAgent:
             params=params,
             reason=reason,
             retrieved_docs=evidence,
+        )
+
+    def _recommend_sql_from_log_only(self, log_text: str) -> SQLRecommendation:
+        parsed = self.parse_log(log_text)
+
+        if not parsed.table:
+            raise ValueError(
+                "Unable to infer target table from log. Include a line like 'Loading records into table ...'."
+            )
+
+        identifier_columns = list(parsed.failed_record.keys())
+        set_parts = ["process_status_code = :ready_value"]
+        where_parts: list[str] = []
+        params: dict[str, str] = {"ready_value": "READY_FOR_RERUN"}
+
+        for column in identifier_columns:
+            where_parts.append(f"{column} = :{column}")
+            params[column] = parsed.failed_record[column]
+
+        if not where_parts:
+            where_parts = ["1 = 1"]
+
+        sql = (
+            f"UPDATE {parsed.table}\n"
+            f"SET {', '.join(set_parts)}\n"
+            f"WHERE {' AND '.join(where_parts)};"
+        )
+
+        return SQLRecommendation(
+            table=parsed.table,
+            sql=sql,
+            params=params,
+            reason=(
+                "Generated SQL from log-only context without schema validation. "
+                "The statement uses failed-record keys as row identifiers and avoids fixed value checks."
+            ),
+            retrieved_docs=[],
         )
