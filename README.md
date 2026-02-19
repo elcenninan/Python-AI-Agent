@@ -6,7 +6,7 @@ The goal is to reset failed records to a restartable status so downstream proces
 
 Now the agent supports three generation capabilities:
 - **RAG retrieval** (`TF-IDF`) to shortlist schema candidates from log data.
-- **LangChain + Ollama table/status selector** to identify the best table and target restart status from retrieved chunks.
+- **LangChain + Ollama schema/table/status understanding** to interpret logs and select the best table + target restart status from retrieved chunks.
 - **SQL generator** (LLM-first, deterministic fallback) to produce `UPDATE` statements.
 
 ## Is RAG the right approach?
@@ -36,7 +36,8 @@ python -m abinitio_sql_agent.cli \
 
 # Or pass only log data (schema is inferred from the log)
 python -m abinitio_sql_agent.cli \
-  --log-data "Ab Initio graph failed for order_id=ORD-1001: duplicate key while loading orders"
+  --log-data "Ab Initio graph failed for order_id=ORD-1001: duplicate key while loading orders" \
+  --llm-model mistral:7b
 
 # Tip: if your shell pasted stray "\\" tokens, the CLI now ignores them.
 
@@ -61,7 +62,7 @@ python -m abinitio_sql_agent.cli \
   - allowed status transitions
 - Runtime failure context:
   - raw log data from Ab Initio logs (required)
-  - failing key info (pk column + value), either passed explicitly or inferable from log text
+  - failing key info (pk column + value), either passed explicitly or inferred by the LLM from log text
 
 ## Output
 
