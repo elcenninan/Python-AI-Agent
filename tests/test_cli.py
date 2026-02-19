@@ -22,11 +22,22 @@ def test_parser_supports_error_alias_for_log_data():
             "schemas/example_schema.yaml",
             "--error",
             "failed",
-            "--pk-column",
-            "order_id",
-            "--pk-value",
-            "ORD-1",
         ]
     )
 
     assert args.log_data == "failed"
+
+
+def test_parser_allows_omitting_pk_inputs():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--schema",
+            "schemas/example_schema.yaml",
+            "--log-data",
+            "failed for order_id=ORD-1",
+        ]
+    )
+
+    assert args.pk_column is None
+    assert args.pk_value is None
