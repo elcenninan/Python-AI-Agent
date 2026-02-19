@@ -11,18 +11,24 @@ from .rag_store import RAGStore
 try:
     from langchain_core.output_parsers import StrOutputParser
     from langchain_core.prompts import ChatPromptTemplate
-    from langchain_openai import ChatOpenAI
+    from langchain_ollama import ChatOllama
 except ImportError:  # pragma: no cover - optional dependency at runtime
-    ChatOpenAI = None
+    ChatOllama = None
     ChatPromptTemplate = None
     StrOutputParser = None
 
 
 class SQLUpdateAgent:
-    def __init__(self, schemas: list[TableSchema], llm_model: str | None = None) -> None:
+    def __init__(
+        self,
+        schemas: list[TableSchema],
+        llm_model: str | None = None,
+        ollama_base_url: str = "http://localhost:11434",
+    ) -> None:
         self.schemas = {s.table: s for s in schemas}
         self.store = RAGStore()
         self.llm_model = llm_model
+        self.ollama_base_url = ollama_base_url
 
         for schema in schemas:
             self.store.add(
@@ -39,10 +45,15 @@ class SQLUpdateAgent:
         self.store.build()
 
     @classmethod
-    def from_yaml(cls, path: str | Path, llm_model: str | None = None) -> "SQLUpdateAgent":
+    def from_yaml(
+        cls,
+        path: str | Path,
+        llm_model: str | None = None,
+        ollama_base_url: str = "http://localhost:11434",
+    ) -> "SQLUpdateAgent":
         data = yaml.safe_load(Path(path).read_text())
         tables = [TableSchema(**entry) for entry in data["tables"]]
-        return cls(tables, llm_model=llm_model)
+        return cls(tables, llm_model=llm_model, ollama_base_url=ollama_base_url)
 
     def _build_fallback_recommendation(
         self,
@@ -92,7 +103,7 @@ class SQLUpdateAgent:
         error_text: str,
         override_restart_status: str | None,
     ) -> tuple[str, dict[str, str], str] | None:
-        if not self.llm_model or ChatOpenAI is None:
+        if not self.llm_model or ChatOllama is None:
             return None
 
         prompt = ChatPromptTemplate.from_messages(
@@ -120,7 +131,11 @@ class SQLUpdateAgent:
             ]
         )
 
-        chain = prompt | ChatOpenAI(model=self.llm_model, temperature=0) | StrOutputParser()
+        chain = (
+            prompt
+            | ChatOllama(model=self.llm_model, temperature=0, base_url=self.ollama_base_url)
+            | StrOutputParser()
+        )
         raw = chain.invoke(
             {
                 "schema_json": json.dumps(schema.__dict__),

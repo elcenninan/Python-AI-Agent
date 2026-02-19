@@ -66,7 +66,7 @@ tables:
 
     class FakeChat:
         def __init__(self, *args, **kwargs):
-            pass
+            self.kwargs = kwargs
 
         def __or__(self, _other):
             return self
@@ -76,7 +76,7 @@ tables:
             return other
 
     monkeypatch.setattr(agent_module, "ChatPromptTemplate", FakePrompt)
-    monkeypatch.setattr(agent_module, "ChatOpenAI", FakeChat)
+    monkeypatch.setattr(agent_module, "ChatOllama", FakeChat)
     monkeypatch.setattr(agent_module, "StrOutputParser", FakeParser)
 
     agent = SQLUpdateAgent.from_yaml(schema, llm_model="fake-model")
