@@ -20,6 +20,13 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 
 
 class SQLUpdateAgent:
+    @staticmethod
+    def _normalize_log_data(log_data: str) -> str:
+        """Convert escaped newlines from copied logs into real lines."""
+        if "\\n" in log_data and "\n" not in log_data:
+            return log_data.replace("\\n", "\n")
+        return log_data
+
     def __init__(
         self,
         schemas: list[TableSchema],
@@ -68,11 +75,39 @@ class SQLUpdateAgent:
                 return match.group(1).strip("'\" ")
         return None
 
+    @staticmethod
+    def _extract_failed_record_fields(log_data: str) -> dict[str, str]:
+        failed_record_match = re.search(
+            r"Failed\s+Record\s*:\s*(.+?)(?:\n\s*\n|\n\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]|\Z)",
+            log_data,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not failed_record_match:
+            return {}
+
+        segment = failed_record_match.group(1)
+        flattened = " ".join(line.strip() for line in segment.splitlines()).strip()
+        if not flattened:
+            return {}
+
+        fields: dict[str, str] = {}
+        for part in re.split(r"\|", flattened):
+            item = part.strip()
+            if "=" not in item:
+                continue
+            key, value = item.split("=", 1)
+            cleaned_key = key.strip()
+            cleaned_value = value.strip().strip("'\"")
+            if cleaned_key:
+                fields[cleaned_key] = cleaned_value
+        return fields
+
     @classmethod
     def _resolve_pk_inputs(
         cls,
         schema: TableSchema,
         log_data: str,
+        extracted_fields: dict[str, str],
         pk_column: str | None,
         pk_value: str | None,
     ) -> tuple[str, str]:
@@ -82,6 +117,10 @@ class SQLUpdateAgent:
 
         if pk_value:
             return resolved_pk_column, pk_value
+
+        for field_name, field_value in extracted_fields.items():
+            if field_name.lower() == resolved_pk_column.lower() and field_value:
+                return resolved_pk_column, field_value
 
         extracted = cls._extract_pk_from_log(log_data, resolved_pk_column)
         if extracted:
@@ -341,6 +380,8 @@ class SQLUpdateAgent:
         pk_value: str | None = None,
         override_restart_status: str | None = None,
     ) -> SQLRecommendation:
+        log_data = self._normalize_log_data(log_data)
+        extracted_fields = self._extract_failed_record_fields(log_data)
         retrieved = self.store.retrieve(log_data)
 
         if not retrieved:
@@ -354,6 +395,7 @@ class SQLUpdateAgent:
         resolved_pk_column, resolved_pk_value = self._resolve_pk_inputs(
             schema=schema,
             log_data=log_data,
+            extracted_fields=extracted_fields,
             pk_column=pk_column,
             pk_value=pk_value,
         )

@@ -284,3 +284,53 @@ tables:
         assert "Could not infer primary key value" in str(exc)
     else:  # pragma: no cover - assertion path
         raise AssertionError("Expected recommend_update to raise ValueError")
+
+
+def test_recommend_update_can_extract_pk_from_failed_record_block(tmp_path):
+    schema = tmp_path / "schema.yaml"
+    schema.write_text(
+        """
+tables:
+  - table: stg_orders
+    primary_keys: [order_id]
+    status_column: record_status
+    failed_status: FAILED
+    restart_status: READY_RETRY
+""".strip()
+    )
+
+    agent = SQLUpdateAgent.from_yaml(schema)
+    rec = agent.recommend_update(
+        log_data=(
+            "[17:05:44] ERROR : DB Execute Component (mp_load_stg_orders)\n"
+            "Failed Record:\n"
+            "order_id=ORD102938|customer_id=CUST8891|amount=2500|status=NEW\n"
+        ),
+    )
+
+    assert rec.params["pk_value"] == "ORD102938"
+
+
+def test_recommend_update_handles_literal_newline_escaped_log(tmp_path):
+    schema = tmp_path / "schema.yaml"
+    schema.write_text(
+        """
+tables:
+  - table: stg_orders
+    primary_keys: [order_id]
+    status_column: record_status
+    failed_status: FAILED
+    restart_status: READY_RETRY
+""".strip()
+    )
+
+    agent = SQLUpdateAgent.from_yaml(schema)
+    rec = agent.recommend_update(
+        log_data=(
+            "[17:05:44] ERROR : DB Execute Component (mp_load_stg_orders)\\n"
+            "Failed Record:\\n"
+            "order_id=ORD102938|customer_id=CUST8891|amount=2500|status=NEW\\n"
+        ),
+    )
+
+    assert rec.params["pk_value"] == "ORD102938"
