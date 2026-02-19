@@ -33,6 +33,8 @@ python -m abinitio_sql_agent.cli \
   --pk-column order_id \
   --pk-value ORD-1001
 
+# Tip: if your shell pasted stray "\\" tokens, the CLI now ignores them.
+
 # Optional: use local Ollama model generation
 # Start Ollama first, then pull your model: ollama pull mistral:7b
 python -m abinitio_sql_agent.cli \
