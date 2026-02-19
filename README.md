@@ -4,6 +4,10 @@ This repository contains a lightweight **RAG-style AI agent** that generates saf
 
 The goal is to reset failed records to a restartable status so downstream processing can continue.
 
+Now the agent supports two generation modes:
+- **Deterministic fallback template** (always available).
+- **LangChain + LLM API generation** when `--llm-model` is provided and API credentials are configured.
+
 ## Is RAG the right approach?
 
 Yes—**if you have multiple schemas, job-specific rules, and evolving operational notes**.
@@ -28,6 +32,14 @@ python -m abinitio_sql_agent.cli \
   --error "Ab Initio graph failed: duplicate key while loading orders" \
   --pk-column order_id \
   --pk-value ORD-1001
+
+# Optional: use LLM generation (LangChain + OpenAI-compatible API)
+python -m abinitio_sql_agent.cli \
+  --schema schemas/example_schema.yaml \
+  --error "Ab Initio graph failed: duplicate key while loading orders" \
+  --pk-column order_id \
+  --pk-value ORD-1001 \
+  --llm-model gpt-4o-mini
 ```
 
 ## Inputs the agent expects

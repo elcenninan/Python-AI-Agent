@@ -13,6 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pk-column", required=True, help="Primary key column name")
     parser.add_argument("--pk-value", required=True, help="Primary key value")
     parser.add_argument("--new-status", default=None, help="Override restart status")
+    parser.add_argument("--llm-model", default=None, help="Optional LangChain LLM model name (ex: gpt-4o-mini)")
     return parser
 
 
@@ -20,7 +21,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    agent = SQLUpdateAgent.from_yaml(args.schema)
+    agent = SQLUpdateAgent.from_yaml(args.schema, llm_model=args.llm_model)
     recommendation = agent.recommend_update(
         error_text=args.error,
         pk_column=args.pk_column,
