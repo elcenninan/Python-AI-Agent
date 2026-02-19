@@ -11,7 +11,7 @@ from .agent import SQLUpdateAgent
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate SQL update for Ab Initio failed records")
-    parser.add_argument("--schema", required=True, help="Path to schema YAML")
+    parser.add_argument("--schema", default=None, help="Path to schema YAML (optional; if omitted schema is inferred from log)")
     parser.add_argument("--log-data", "--error", dest="log_data", required=True, help="Failure log text")
     parser.add_argument("--pk-column", default=None, help="Primary key column name (optional if inferable from schema/log)")
     parser.add_argument("--pk-value", default=None, help="Primary key value (optional if inferable from log)")
@@ -51,11 +51,18 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args(_sanitize_argv(sys.argv[1:]))
 
-    agent = SQLUpdateAgent.from_yaml(
-        args.schema,
-        llm_model=args.llm_model,
-        ollama_base_url=args.ollama_base_url,
-    )
+    if args.schema:
+        agent = SQLUpdateAgent.from_yaml(
+            args.schema,
+            llm_model=args.llm_model,
+            ollama_base_url=args.ollama_base_url,
+        )
+    else:
+        agent = SQLUpdateAgent.from_log(
+            args.log_data,
+            llm_model=args.llm_model,
+            ollama_base_url=args.ollama_base_url,
+        )
     recommendation = agent.recommend_update(
         log_data=args.log_data,
         pk_column=args.pk_column,

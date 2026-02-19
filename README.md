@@ -34,9 +34,8 @@ python -m abinitio_sql_agent.cli \
   --pk-column order_id \
   --pk-value ORD-1001
 
-# Or pass only log data if it includes key details (e.g., order_id=ORD-1001)
+# Or pass only log data (schema is inferred from the log)
 python -m abinitio_sql_agent.cli \
-  --schema schemas/example_schema.yaml \
   --log-data "Ab Initio graph failed for order_id=ORD-1001: duplicate key while loading orders"
 
 # Tip: if your shell pasted stray "\\" tokens, the CLI now ignores them.
@@ -54,14 +53,14 @@ python -m abinitio_sql_agent.cli \
 
 ## Inputs the agent expects
 
-- One or more schema files (YAML) with:
+- Optional schema files (YAML) with:
   - table name
   - primary key columns
   - status column
   - optional retry/error timestamp columns
   - allowed status transitions
 - Runtime failure context:
-  - raw log data from Ab Initio logs
+  - raw log data from Ab Initio logs (required)
   - failing key info (pk column + value), either passed explicitly or inferable from log text
 
 ## Output

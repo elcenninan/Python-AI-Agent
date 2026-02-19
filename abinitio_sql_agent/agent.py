@@ -64,6 +64,53 @@ class SQLUpdateAgent:
         return cls(tables, llm_model=llm_model, ollama_base_url=ollama_base_url)
 
     @staticmethod
+    def _infer_schema_from_log_heuristic(log_data: str) -> TableSchema:
+        log_data = SQLUpdateAgent._normalize_log_data(log_data)
+        normalized = log_data.lower()
+        table_match = re.search(r"\btable\s+([A-Za-z_][A-Za-z0-9_$#.]*)", log_data, flags=re.IGNORECASE)
+        component_match = re.search(r"\bmp_[A-Za-z0-9_]*?(stg_[A-Za-z0-9_]+)", normalized)
+        failed_fields = SQLUpdateAgent._extract_failed_record_fields(log_data)
+
+        table_name = "stg_failed_records"
+        if table_match:
+            table_name = table_match.group(1)
+        elif component_match:
+            table_name = component_match.group(1)
+        elif "orders" in normalized:
+            table_name = "stg_orders"
+
+        pk_column = "id"
+        if failed_fields:
+            first_key = next(iter(failed_fields.keys()))
+            if first_key:
+                pk_column = first_key
+
+        status_column = "status"
+        for candidate in ["record_status", "status", "status_flag"]:
+            if re.search(rf"\b{candidate}\b", log_data, flags=re.IGNORECASE):
+                status_column = candidate
+                break
+
+        return TableSchema(
+            table=table_name,
+            primary_keys=[pk_column],
+            status_column=status_column,
+            failed_status="FAILED",
+            restart_status="READY_RETRY",
+            notes="Inferred from runtime log data",
+        )
+
+    @classmethod
+    def from_log(
+        cls,
+        log_data: str,
+        llm_model: str | None = None,
+        ollama_base_url: str = "http://localhost:11434",
+    ) -> "SQLUpdateAgent":
+        schema = cls._infer_schema_from_log_heuristic(cls._normalize_log_data(log_data))
+        return cls([schema], llm_model=llm_model, ollama_base_url=ollama_base_url)
+
+    @staticmethod
     def _extract_pk_from_log(log_data: str, pk_column: str) -> str | None:
         patterns = [
             rf"\b{re.escape(pk_column)}\b\s*[:=]\s*['\"]?([A-Za-z0-9_.\-/]+)",
