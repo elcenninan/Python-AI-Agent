@@ -1,20 +1,30 @@
-tables:
-  - table: stg_orders
-    primary_keys: [order_id]
-    status_column: record_status
-    failed_status: FAILED
-    restart_status: READY_RETRY
-    retry_count_column: retry_count
-    last_error_column: last_error_message
-    updated_at_column: updated_at
-    notes: "Orders landing table used by abinitio graph g_load_orders"
+schemas:
+  - name: g6t_policy_trans_src_prod
+    table: G6T_POLICY_TRANS_STD
+    process_status_column: process_status_code
+    failed_value: FAILED
+    rerun_ready_value: READY_FOR_RERUN
+    id_columns:
+      - trans_id
+      - policy_id
+    mutable_columns:
+      - process_status_code
+      - retry_count
+      - error_message
+      - updated_by
+    notes: >
+      Main policy transaction load target. Use when graph g6t_policy_trans_src fails
+      with duplicate records or transient downstream issues.
 
-  - table: stg_customers
-    primary_keys: [customer_id]
-    status_column: status_flag
-    failed_status: E
-    restart_status: N
-    retry_count_column: retries
-    last_error_column: err_msg
-    updated_at_column: upd_ts
-    notes: "Customer feed reconciliation graph"
+  - name: claims_load_prod
+    table: G6T_CLAIMS_STD
+    process_status_column: load_status
+    failed_value: E
+    rerun_ready_value: R
+    id_columns:
+      - claim_id
+    mutable_columns:
+      - load_status
+      - error_text
+      - retry_count
+    notes: Claim ingestion pipeline schema.
