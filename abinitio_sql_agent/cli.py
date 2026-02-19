@@ -13,7 +13,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pk-column", required=True, help="Primary key column name")
     parser.add_argument("--pk-value", required=True, help="Primary key value")
     parser.add_argument("--new-status", default=None, help="Override restart status")
-    parser.add_argument("--llm-model", default=None, help="Optional LangChain LLM model name (ex: gpt-4o-mini)")
+    parser.add_argument("--llm-model", default=None, help="Optional Ollama model name (ex: mistral:7b)")
+    parser.add_argument("--ollama-base-url", default="http://localhost:11434", help="Ollama API base URL")
     return parser
 
 
@@ -21,7 +22,11 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    agent = SQLUpdateAgent.from_yaml(args.schema, llm_model=args.llm_model)
+    agent = SQLUpdateAgent.from_yaml(
+        args.schema,
+        llm_model=args.llm_model,
+        ollama_base_url=args.ollama_base_url,
+    )
     recommendation = agent.recommend_update(
         error_text=args.error,
         pk_column=args.pk_column,

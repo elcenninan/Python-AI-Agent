@@ -6,7 +6,7 @@ The goal is to reset failed records to a restartable status so downstream proces
 
 Now the agent supports two generation modes:
 - **Deterministic fallback template** (always available).
-- **LangChain + LLM API generation** when `--llm-model` is provided and API credentials are configured.
+- **LangChain + Ollama local LLM generation** when `--llm-model` is provided and Ollama is running.
 
 ## Is RAG the right approach?
 
@@ -33,13 +33,15 @@ python -m abinitio_sql_agent.cli \
   --pk-column order_id \
   --pk-value ORD-1001
 
-# Optional: use LLM generation (LangChain + OpenAI-compatible API)
+# Optional: use local Ollama model generation
+# Start Ollama first, then pull your model: ollama pull mistral:7b
 python -m abinitio_sql_agent.cli \
   --schema schemas/example_schema.yaml \
   --error "Ab Initio graph failed: duplicate key while loading orders" \
   --pk-column order_id \
   --pk-value ORD-1001 \
-  --llm-model gpt-4o-mini
+  --llm-model mistral:7b \
+  --ollama-base-url http://localhost:11434
 ```
 
 ## Inputs the agent expects
