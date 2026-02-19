@@ -1,0 +1,20 @@
+tables:
+  - table: stg_orders
+    primary_keys: [order_id]
+    status_column: record_status
+    failed_status: FAILED
+    restart_status: READY_RETRY
+    retry_count_column: retry_count
+    last_error_column: last_error_message
+    updated_at_column: updated_at
+    notes: "Orders landing table used by abinitio graph g_load_orders"
+
+  - table: stg_customers
+    primary_keys: [customer_id]
+    status_column: status_flag
+    failed_status: E
+    restart_status: N
+    retry_count_column: retries
+    last_error_column: err_msg
+    updated_at_column: upd_ts
+    notes: "Customer feed reconciliation graph"
