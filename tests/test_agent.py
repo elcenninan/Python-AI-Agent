@@ -241,3 +241,46 @@ tables:
 
     assert rec.table == "stg_customers"
     assert rec.detected_status == "N"
+
+
+def test_recommend_update_can_infer_pk_from_schema_and_log(tmp_path):
+    schema = tmp_path / "schema.yaml"
+    schema.write_text(
+        """
+tables:
+  - table: stg_orders
+    primary_keys: [order_id]
+    status_column: record_status
+    failed_status: FAILED
+    restart_status: READY_RETRY
+""".strip()
+    )
+
+    agent = SQLUpdateAgent.from_yaml(schema)
+    rec = agent.recommend_update(
+        log_data="abinitio failed while loading orders with order_id=ORD-77",
+    )
+
+    assert "WHERE order_id = :pk_value" in rec.sql
+    assert rec.params["pk_value"] == "ORD-77"
+
+
+def test_recommend_update_raises_if_pk_value_not_provided_or_in_log(tmp_path):
+    schema = tmp_path / "schema.yaml"
+    schema.write_text(
+        """
+tables:
+  - table: stg_orders
+    primary_keys: [order_id]
+    status_column: record_status
+""".strip()
+    )
+
+    agent = SQLUpdateAgent.from_yaml(schema)
+
+    try:
+        agent.recommend_update(log_data="abinitio failed while loading orders")
+    except ValueError as exc:
+        assert "Could not infer primary key value" in str(exc)
+    else:  # pragma: no cover - assertion path
+        raise AssertionError("Expected recommend_update to raise ValueError")

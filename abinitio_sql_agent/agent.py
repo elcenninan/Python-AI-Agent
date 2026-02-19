@@ -57,6 +57,43 @@ class SQLUpdateAgent:
         return cls(tables, llm_model=llm_model, ollama_base_url=ollama_base_url)
 
     @staticmethod
+    def _extract_pk_from_log(log_data: str, pk_column: str) -> str | None:
+        patterns = [
+            rf"\b{re.escape(pk_column)}\b\s*[:=]\s*['\"]?([A-Za-z0-9_.\-/]+)",
+            rf"\b{re.escape(pk_column)}\b\s+is\s+['\"]?([A-Za-z0-9_.\-/]+)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, log_data, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).strip("'\" ")
+        return None
+
+    @classmethod
+    def _resolve_pk_inputs(
+        cls,
+        schema: TableSchema,
+        log_data: str,
+        pk_column: str | None,
+        pk_value: str | None,
+    ) -> tuple[str, str]:
+        resolved_pk_column = (pk_column or (schema.primary_keys[0] if schema.primary_keys else "")).strip()
+        if not resolved_pk_column:
+            raise ValueError("No primary key column available in schema for SQL guard generation.")
+
+        if pk_value:
+            return resolved_pk_column, pk_value
+
+        extracted = cls._extract_pk_from_log(log_data, resolved_pk_column)
+        if extracted:
+            return resolved_pk_column, extracted
+
+        raise ValueError(
+            "Could not infer primary key value from log_data. "
+            f"Include '{resolved_pk_column}=<value>' (or '{resolved_pk_column}: <value>') in the log, "
+            "or pass --pk-value explicitly."
+        )
+
+    @staticmethod
     def _has_required_safety_guards(
         sql: str,
         params: dict[str, str],
@@ -300,8 +337,8 @@ class SQLUpdateAgent:
     def recommend_update(
         self,
         log_data: str,
-        pk_column: str,
-        pk_value: str,
+        pk_column: str | None = None,
+        pk_value: str | None = None,
         override_restart_status: str | None = None,
     ) -> SQLRecommendation:
         retrieved = self.store.retrieve(log_data)
@@ -314,19 +351,25 @@ class SQLUpdateAgent:
             retrieved=retrieved,
             override_restart_status=override_restart_status,
         )
+        resolved_pk_column, resolved_pk_value = self._resolve_pk_inputs(
+            schema=schema,
+            log_data=log_data,
+            pk_column=pk_column,
+            pk_value=pk_value,
+        )
 
         result, llm_issue = self._build_llm_recommendation(
             schema=schema,
-            pk_column=pk_column,
-            pk_value=pk_value,
+            pk_column=resolved_pk_column,
+            pk_value=resolved_pk_value,
             log_data=log_data,
             override_restart_status=detected_status,
         )
         if result is None:
             sql, params, generation_explanation = self._build_fallback_recommendation(
                 schema=schema,
-                pk_column=pk_column,
-                pk_value=pk_value,
+                pk_column=resolved_pk_column,
+                pk_value=resolved_pk_value,
                 log_data=log_data,
                 override_restart_status=detected_status,
             )
